@@ -1,95 +1,132 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f172a" />
-  <title>FinançaPessoal — Gestão Financeira</title>
+  <meta name="theme-color" content="#0b1020" />
+  <title>Bank</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="styles.css" />
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>" />
+  <script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>💰</text></svg>" />
 </head>
 <body>
+  <div class="bg-gradients" aria-hidden="true"></div>
+
   <div id="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">
-          <span class="logo-icon">💰</span>
-          <span class="logo-text">FinançaPessoal</span>
+      <div class="sidebar-inner">
+        <div class="sidebar-header">
+          <div class="logo">
+            <div class="logo-badge">
+              <i data-lucide="wallet"></i>
+            </div>
+            <div class="logo-body">
+              <div class="logo-title">Bank</div>
+            </div>
+          </div>
+          <button class="icon-btn sidebar-close" id="sidebarClose" aria-label="Fechar menu">
+            <i data-lucide="x"></i>
+          </button>
         </div>
-        <button class="sidebar-close" id="sidebarClose" aria-label="Fechar menu">✕</button>
-      </div>
 
-      <div class="profile-switcher">
-        <label class="profile-label">Perfil</label>
-        <div class="profile-buttons" id="profileButtons"></div>
-      </div>
+        <div class="profile-switcher">
+          <div class="profile-label">
+            <i data-lucide="users" class="xs"></i>
+            <span>Perfil</span>
+          </div>
+          <div class="profile-buttons" id="profileButtons"></div>
+        </div>
 
-      <nav class="nav">
-        <button class="nav-item active" data-view="dashboard">
-          <span class="nav-icon">📊</span><span>Painel</span>
-        </button>
-        <button class="nav-item" data-view="transactions">
-          <span class="nav-icon">💸</span><span>Transações</span>
-        </button>
-        <button class="nav-item" data-view="accounts">
-          <span class="nav-icon">🏦</span><span>Contas</span>
-        </button>
-        <button class="nav-item" data-view="cards">
-          <span class="nav-icon">💳</span><span>Cartões</span>
-        </button>
-        <button class="nav-item" data-view="categories">
-          <span class="nav-icon">🏷️</span><span>Categorias</span>
-        </button>
-        <button class="nav-item" data-view="budgets">
-          <span class="nav-icon">🎯</span><span>Orçamentos</span>
-        </button>
-        <button class="nav-item" data-view="goals">
-          <span class="nav-icon">🏆</span><span>Metas</span>
-        </button>
-        <button class="nav-item" data-view="recurring">
-          <span class="nav-icon">🔁</span><span>Recorrentes</span>
-        </button>
-        <button class="nav-item" data-view="reports">
-          <span class="nav-icon">📈</span><span>Relatórios</span>
-        </button>
-        <button class="nav-item" data-view="settings">
-          <span class="nav-icon">⚙️</span><span>Configurações</span>
-        </button>
-      </nav>
+        <nav class="nav">
+          <button class="nav-item active" data-view="dashboard">
+            <i data-lucide="layout-dashboard"></i><span>Painel</span>
+          </button>
+          <button class="nav-item" data-view="transactions">
+            <i data-lucide="arrow-right-left"></i><span>Transações</span>
+          </button>
+          <button class="nav-item" data-view="accounts">
+            <i data-lucide="landmark"></i><span>Contas</span>
+          </button>
+          <button class="nav-item" data-view="cards">
+            <i data-lucide="credit-card"></i><span>Cartões</span>
+          </button>
+          <button class="nav-item" data-view="categories">
+            <i data-lucide="tags"></i><span>Categorias</span>
+          </button>
+          <button class="nav-item" data-view="budgets">
+            <i data-lucide="target"></i><span>Orçamentos</span>
+          </button>
+          <button class="nav-item" data-view="goals">
+            <i data-lucide="trophy"></i><span>Metas</span>
+          </button>
+          <button class="nav-item" data-view="recurring">
+            <i data-lucide="repeat"></i><span>Recorrentes</span>
+          </button>
+          <button class="nav-item" data-view="reports">
+            <i data-lucide="bar-chart-3"></i><span>Relatórios</span>
+          </button>
+          <button class="nav-item" data-view="settings">
+            <i data-lucide="settings"></i><span>Configurações</span>
+          </button>
+        </nav>
 
-      <div class="sidebar-footer">
-        <button class="theme-toggle" id="themeToggle" aria-label="Alternar tema">
-          <span id="themeIcon">🌙</span>
-          <span id="themeLabel">Modo Escuro</span>
-        </button>
+        <div class="sidebar-footer">
+          <button class="theme-toggle" id="themeToggle" aria-label="Alternar tema">
+            <i data-lucide="moon" id="themeIcon"></i>
+            <span id="themeLabel">Modo escuro</span>
+          </button>
+          <div class="tip">
+            <i data-lucide="keyboard" class="xs"></i>
+            <span>Pressione <kbd>?</kbd> para atalhos</span>
+          </div>
+        </div>
       </div>
     </aside>
 
     <!-- Main -->
     <main class="main">
       <header class="topbar">
-        <button class="menu-btn" id="menuBtn" aria-label="Abrir menu">☰</button>
-        <div class="topbar-title" id="topbarTitle">Painel</div>
-        <button class="btn btn-primary" id="quickAddBtn">
-          <span>+</span><span>Nova Transação</span>
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Abrir menu">
+          <i data-lucide="menu"></i>
         </button>
+        <div class="topbar-title" id="topbarTitle">Painel</div>
+        <div class="topbar-actions">
+          <button class="btn btn-ghost" id="shortcutsBtn" title="Atalhos (?)" aria-label="Atalhos">
+            <i data-lucide="keyboard"></i>
+          </button>
+          <button class="btn btn-primary" id="quickAddBtn">
+            <i data-lucide="plus"></i>
+            <span class="hide-sm">Nova Transação</span>
+          </button>
+        </div>
       </header>
 
       <div class="view-container" id="viewContainer"></div>
     </main>
   </div>
 
+  <!-- Floating Action Button (mobile) -->
+  <button class="fab" id="fab" aria-label="Nova transação">
+    <i data-lucide="plus"></i>
+  </button>
+
   <!-- Modal -->
   <div class="modal-overlay" id="modalOverlay">
     <div class="modal" id="modal" role="dialog" aria-modal="true">
       <div class="modal-header">
         <h2 id="modalTitle">Modal</h2>
-        <button class="modal-close" id="modalClose" aria-label="Fechar">✕</button>
+        <button class="icon-btn" id="modalClose" aria-label="Fechar">
+          <i data-lucide="x"></i>
+        </button>
       </div>
       <div class="modal-body" id="modalBody"></div>
     </div>
@@ -105,7 +142,7 @@
         <h2 id="confirmTitle">Confirmar</h2>
       </div>
       <div class="modal-body">
-        <p id="confirmMessage"></p>
+        <p id="confirmMessage" class="confirm-text"></p>
         <div class="form-actions" style="margin-top:1.25rem;">
           <button class="btn btn-ghost" id="confirmCancel">Cancelar</button>
           <button class="btn btn-danger" id="confirmOk">Confirmar</button>
