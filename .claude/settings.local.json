@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check \"C:/Users/guilhermebelinelo/Documents/dev/gestaofinanc/app.js\")"
+    ]
+  }
+}

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>FinançaPessoal — Gestão Financeira</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">💰</span>
+          <span class="logo-text">FinançaPessoal</span>
+        </div>
+        <button class="sidebar-close" id="sidebarClose" aria-label="Fechar menu">✕</button>
+      </div>
+
+      <div class="profile-switcher">
+        <label class="profile-label">Perfil</label>
+        <div class="profile-buttons" id="profileButtons"></div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="nav-icon">📊</span><span>Painel</span>
+        </button>
+        <button class="nav-item" data-view="transactions">
+          <span class="nav-icon">💸</span><span>Transações</span>
+        </button>
+        <button class="nav-item" data-view="accounts">
+          <span class="nav-icon">🏦</span><span>Contas</span>
+        </button>
+        <button class="nav-item" data-view="cards">
+          <span class="nav-icon">💳</span><span>Cartões</span>
+        </button>
+        <button class="nav-item" data-view="categories">
+          <span class="nav-icon">🏷️</span><span>Categorias</span>
+        </button>
+        <button class="nav-item" data-view="budgets">
+          <span class="nav-icon">🎯</span><span>Orçamentos</span>
+        </button>
+        <button class="nav-item" data-view="goals">
+          <span class="nav-icon">🏆</span><span>Metas</span>
+        </button>
+        <button class="nav-item" data-view="recurring">
+          <span class="nav-icon">🔁</span><span>Recorrentes</span>
+        </button>
+        <button class="nav-item" data-view="reports">
+          <span class="nav-icon">📈</span><span>Relatórios</span>
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-icon">⚙️</span><span>Configurações</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="theme-toggle" id="themeToggle" aria-label="Alternar tema">
+          <span id="themeIcon">🌙</span>
+          <span id="themeLabel">Modo Escuro</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <header class="topbar">
+        <button class="menu-btn" id="menuBtn" aria-label="Abrir menu">☰</button>
+        <div class="topbar-title" id="topbarTitle">Painel</div>
+        <button class="btn btn-primary" id="quickAddBtn">
+          <span>+</span><span>Nova Transação</span>
+        </button>
+      </header>
+
+      <div class="view-container" id="viewContainer"></div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h2 id="modalTitle">Modal</h2>
+        <button class="modal-close" id="modalClose" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Confirm Dialog -->
+  <div class="modal-overlay" id="confirmOverlay">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 id="confirmTitle">Confirmar</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage"></p>
+        <div class="form-actions" style="margin-top:1.25rem;">
+          <button class="btn btn-ghost" id="confirmCancel">Cancelar</button>
+          <button class="btn btn-danger" id="confirmOk">Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
