@@ -6,14 +6,10 @@
   <meta name="theme-color" content="#0b1020" />
   <title>Bank</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="styles.css" />
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
+  <script src="assets/vendor/chart.umd.min.js"></script>
+  <script src="assets/vendor/lucide.min.js"></script>
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>💰</text></svg>" />
 </head>
@@ -38,13 +34,7 @@
           </button>
         </div>
 
-        <div class="profile-switcher">
-          <div class="profile-label">
-            <i data-lucide="users" class="xs"></i>
-            <span>Perfil</span>
-          </div>
-          <div class="profile-buttons" id="profileButtons"></div>
-        </div>
+        <div id="userCard" class="user-card-wrap"></div>
 
         <nav class="nav">
           <button class="nav-item active" data-view="dashboard">

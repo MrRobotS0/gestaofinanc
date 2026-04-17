@@ -1,0 +1,61 @@
+{
+  "name": "bank",
+  "version": "1.0.0",
+  "description": "Bank — Gestão Financeira Pessoal (offline, 100% local)",
+  "main": "main.js",
+  "author": "Guilherme",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5"
+  },
+  "build": {
+    "appId": "com.bank.gestao",
+    "productName": "Bank",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "styles.css",
+      "app.js",
+      "assets/**/*",
+      "!**/.git/**",
+      "!**/.vscode/**",
+      "!dist/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Bank-Portable-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Bank-Portable-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Bank",
+      "artifactName": "Bank-Setup-${version}.${ext}"
+    }
+  }
+}

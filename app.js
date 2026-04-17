@@ -3,11 +3,50 @@
 // Persistência: localStorage (por perfil) — sem backend
 // ============================================================
 
-const STORAGE_PREFIX = 'bank_v1_';
-const STORAGE_META = 'bank_meta_v1';
+const STORAGE_PREFIX = 'bank_v1_';         // legado — usado apenas para migração
+const STORAGE_META_OLD = 'bank_meta_v1';   // legado
+const STORAGE_DATA = 'bank_data_v2';
+const STORAGE_META = 'bank_meta_v2';
 const APP_NAME = 'Bank';
 
-const DEFAULT_PROFILES = ['Guilherme', 'Almir'];
+const THEMES = [
+  { id: 'midnight',  name: 'Midnight',  kind: 'dark',  colors: ['#070b19', '#818cf8', '#c084fc'] },
+  { id: 'daylight',  name: 'Daylight',  kind: 'light', colors: ['#f5f7fb', '#6366f1', '#a855f7'] },
+  { id: 'ocean',     name: 'Ocean',     kind: 'dark',  colors: ['#02131c', '#22d3ee', '#14b8a6'] },
+  { id: 'sunset',    name: 'Sunset',    kind: 'dark',  colors: ['#1a0a1a', '#fb923c', '#f472b6'] },
+  { id: 'forest',    name: 'Forest',    kind: 'dark',  colors: ['#0a1f15', '#4ade80', '#a3e635'] },
+  { id: 'candy',     name: 'Candy',     kind: 'light', colors: ['#fdf2f8', '#ec4899', '#a855f7'] },
+  { id: 'cyberpunk', name: 'Cyberpunk', kind: 'dark',  colors: ['#030712', '#00ff88', '#00e5ff'] },
+  { id: 'royal',     name: 'Royal',     kind: 'dark',  colors: ['#0f0724', '#fbbf24', '#a78bfa'] },
+  { id: 'dusk',      name: 'Dusk',      kind: 'dark',  colors: ['#1a0f05', '#f97316', '#eab308'] },
+  { id: 'rose',      name: 'Rose',      kind: 'light', colors: ['#fef7ed', '#e11d48', '#f43f5e'] },
+  { id: 'nord',      name: 'Nord',      kind: 'dark',  colors: ['#2e3440', '#88c0d0', '#b48ead'] },
+  { id: 'graphite',  name: 'Graphite',  kind: 'dark',  colors: ['#0a0a0a', '#e5e7eb', '#9ca3af'] },
+];
+
+const ACCENT_PALETTE = [
+  '#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e',
+  '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e',
+  '#10b981','#14b8a6','#06b6d4','#0ea5e9','#3b82f6','#64748b',
+];
+
+const AVATAR_OPTIONS = [
+  '💼','🧑','👨','👩','🧑‍💻','👨‍💻','👩‍💻','🧑‍💼','👨‍💼','👩‍💼',
+  '🦸','🧙','🧝','🤖','👑','🎩','🕶️','🦊','🐱','🐶',
+  '🐼','🐨','🐯','🦁','🐸','🦄','🐙','🦉','🦅','🐺',
+  '💰','💎','🏆','⚡','🔥','✨','🌟','💡','🎯','🚀',
+];
+
+const DEFAULT_USER = { name: 'Você', avatar: '💼', title: 'Gestão Financeira' };
+const DEFAULT_APPEARANCE = {
+  theme: 'midnight',
+  accent: null,
+  fontScale: 1,
+  density: 'normal',
+  radius: 'rounded',
+  showGlow: true,
+  hideBalance: false,
+};
 
 const DEFAULT_CATEGORIES = [
   { id: 'c_salario',     name: 'Salário',         icon: '💼', color: '#10b981', type: 'income' },
@@ -51,9 +90,8 @@ const CARD_COLORS = ['dark','purple','pink','green','orange','blue'];
 
 // ---------- ESTADO ----------
 let state = {
-  profile: null,
-  theme: 'dark',
-  profiles: [...DEFAULT_PROFILES],
+  user: { ...DEFAULT_USER },
+  appearance: { ...DEFAULT_APPEARANCE },
   data: null,
   view: 'dashboard',
   charts: {},
@@ -105,25 +143,90 @@ function renderIcons(root) {
 // Lucide icon placeholder HTML (use inside templates)
 const icon = (name, cls = '') => `<i data-lucide="${name}"${cls ? ` class="${cls}"` : ''}></i>`;
 
+// ---------- ELECTRON BRIDGE (opcional — app roda também em navegador) ----------
+const IS_ELECTRON = typeof window !== 'undefined' && !!window.electronAPI;
+
+function snapshotAll() {
+  return {
+    app: APP_NAME,
+    version: '2.0.0',
+    exportedAt: new Date().toISOString(),
+    user: state.user,
+    appearance: state.appearance,
+    data: state.data,
+  };
+}
+
+let _mirrorTimer = null;
+let _lastBackupDay = null;
+function scheduleMirrorAndBackup() {
+  if (!IS_ELECTRON) return;
+  clearTimeout(_mirrorTimer);
+  _mirrorTimer = setTimeout(async () => {
+    try {
+      const json = JSON.stringify(snapshotAll(), null, 2);
+      window.electronAPI.saveMirror(json);
+      const today = todayISO();
+      if (_lastBackupDay !== today) {
+        _lastBackupDay = today;
+        window.electronAPI.rotateBackup(json);
+      }
+    } catch {}
+  }, 600);
+}
+
 // ---------- PERSISTÊNCIA ----------
 function loadMeta() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_META) || 'null'); }
-  catch { return null; }
+  try {
+    const raw = localStorage.getItem(STORAGE_META);
+    if (raw) return JSON.parse(raw);
+    // Migração: formato antigo bank_meta_v1 { profile, profiles, theme }
+    const oldRaw = localStorage.getItem(STORAGE_META_OLD);
+    if (oldRaw) {
+      const old = JSON.parse(oldRaw);
+      const name = old.profile || 'Você';
+      const oldTheme = old.theme === 'light' ? 'daylight' : (old.theme === 'dark' ? 'midnight' : 'midnight');
+      const migrated = {
+        user: { name, avatar: '💼', title: 'Gestão Financeira' },
+        appearance: { ...DEFAULT_APPEARANCE, theme: oldTheme },
+      };
+      localStorage.setItem(STORAGE_META, JSON.stringify(migrated));
+      return migrated;
+    }
+    return null;
+  } catch { return null; }
 }
 function saveMeta() {
   localStorage.setItem(STORAGE_META, JSON.stringify({
-    profile: state.profile, profiles: state.profiles, theme: state.theme,
+    user: state.user,
+    appearance: state.appearance,
   }));
+  scheduleMirrorAndBackup();
 }
-function profileKey(name) { return STORAGE_PREFIX + name.toLowerCase().replace(/\s+/g, '_'); }
 
-function loadProfileData(name) {
+function loadData() {
   try {
-    const raw = localStorage.getItem(profileKey(name));
-    if (!raw) return buildDefaultData();
-    return { ...buildDefaultData(), ...JSON.parse(raw) };
+    // Formato atual
+    const raw = localStorage.getItem(STORAGE_DATA);
+    if (raw) return { ...buildDefaultData(), ...JSON.parse(raw) };
+    // Migração: pega qualquer perfil legado (bank_v1_*)
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(STORAGE_PREFIX)) {
+        const legacy = localStorage.getItem(k);
+        if (legacy) {
+          try {
+            const parsed = JSON.parse(legacy);
+            localStorage.setItem(STORAGE_DATA, legacy);
+            return { ...buildDefaultData(), ...parsed };
+          } catch {}
+        }
+      }
+    }
+    return buildDefaultData();
   } catch { return buildDefaultData(); }
 }
+
 function buildDefaultData() {
   return {
     accounts: JSON.parse(JSON.stringify(DEFAULT_ACCOUNTS)),
@@ -135,7 +238,40 @@ function buildDefaultData() {
     recurring: [],
   };
 }
-function saveData() { localStorage.setItem(profileKey(state.profile), JSON.stringify(state.data)); }
+
+function saveData() {
+  localStorage.setItem(STORAGE_DATA, JSON.stringify(state.data));
+  scheduleMirrorAndBackup();
+}
+
+// Recuperação do mirror em arquivo (Electron) quando localStorage estiver vazio
+async function tryRestoreFromMirror() {
+  if (!IS_ELECTRON) return false;
+  try {
+    const hasData = !!localStorage.getItem(STORAGE_DATA);
+    const hasMeta = !!localStorage.getItem(STORAGE_META) || !!localStorage.getItem(STORAGE_META_OLD);
+    const hasLegacy = (() => {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(STORAGE_PREFIX)) return true;
+      }
+      return false;
+    })();
+    if (hasData || hasMeta || hasLegacy) return false;
+    const res = await window.electronAPI.loadMirror();
+    if (!res?.ok || !res.data) return false;
+    const m = res.data;
+    if (m.user) state.user = { ...DEFAULT_USER, ...m.user };
+    if (m.appearance) state.appearance = { ...DEFAULT_APPEARANCE, ...m.appearance };
+    if (m.data) {
+      state.data = { ...buildDefaultData(), ...m.data };
+      localStorage.setItem(STORAGE_DATA, JSON.stringify(state.data));
+    }
+    saveMeta();
+    toast('Dados restaurados do backup local', 'info');
+    return true;
+  } catch { return false; }
+}
 
 // ---------- TOAST ----------
 const TOAST_ICONS = { success: 'check-circle-2', error: 'x-circle', warning: 'alert-triangle', info: 'info' };
@@ -261,10 +397,14 @@ function renderDashboard(c) {
   state.dashMonth = month;
   const stats = monthlyStats(month);
   const total = totalBalance();
+  const prevStats = monthlyStats(addMonths(month, -1));
+  const deltaInc = computeDelta(stats.income, prevStats.income);
+  const deltaExp = computeDelta(stats.expense, prevStats.expense);
+  const projection = month === currentMonthKey() ? projectEndOfMonthBalance() : null;
   const monthTxs = state.data.transactions
     .filter(tx => monthKey(tx.date) === month)
     .sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''))
-    .slice(0, 8);
+    .slice(0, 10);
 
   c.innerHTML = `
     <section class="hero">
@@ -291,6 +431,7 @@ function renderDashboard(c) {
           <div class="stat-icon">${icon('trending-up')}</div>
         </div>
         <div class="stat-value" style="color:var(--success);">${fmtBRL(stats.income)}</div>
+        ${deltaBadgeHtml(deltaInc, 'inverse')}
       </div>
       <div class="stat-card expense">
         <div class="stat-head">
@@ -298,6 +439,7 @@ function renderDashboard(c) {
           <div class="stat-icon">${icon('trending-down')}</div>
         </div>
         <div class="stat-value" style="color:var(--danger);">${fmtBRL(stats.expense)}</div>
+        ${deltaBadgeHtml(deltaExp, 'normal-expense')}
       </div>
       <div class="stat-card ${stats.balance >= 0 ? 'savings' : 'expense'}">
         <div class="stat-head">
@@ -305,8 +447,24 @@ function renderDashboard(c) {
           <div class="stat-icon">${icon('piggy-bank')}</div>
         </div>
         <div class="stat-value" style="color:${stats.balance >= 0 ? 'var(--success)' : 'var(--danger)'};">${fmtBRL(stats.balance)}</div>
+        <div class="stat-sub">vs ${monthLabel(addMonths(month, -1))}: ${fmtBRL(prevStats.balance)}</div>
       </div>
     </div>
+
+    ${projection ? `
+      <div class="card projection-card" style="margin-bottom:1.25rem;">
+        <div class="card-title">
+          <div class="card-title-left">${icon('trending-up')}<span>Projeção para fim do mês</span></div>
+          ${projection.pending > 0 ? `<span class="badge" style="background:var(--primary-light);color:var(--primary);">${projection.pending} recorrente${projection.pending!==1?'s':''} pendente${projection.pending!==1?'s':''}</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;">
+          <div class="stat-value" style="color:${projection.balance>=0?'var(--success)':'var(--danger)'};font-size:2rem;">${fmtBRL(projection.balance)}</div>
+          ${projection.delta !== 0 ? `<div style="font-size:0.875rem;color:var(--text-muted);">
+            (${projection.delta >= 0 ? '+' : ''}${fmtBRL(projection.delta)} com recorrentes)
+          </div>` : ''}
+        </div>
+      </div>
+    ` : ''}
 
     <div class="grid grid-2" style="grid-template-columns: 2fr 1fr;">
       <div class="chart-card">
@@ -328,7 +486,7 @@ function renderDashboard(c) {
         <div class="card-title-left">${icon('clock')}<span>Transações recentes</span></div>
         <button class="btn btn-ghost btn-sm" data-nav="transactions">Ver todas ${icon('arrow-right')}</button>
       </div>
-      ${monthTxs.length === 0 ? emptyState('inbox', 'Sem transações este mês', 'Clique em "Nova Transação" para começar.', `<button class="btn btn-primary btn-sm" id="emptyAdd">${icon('plus')}<span>Adicionar</span></button>`) : `<div class="transaction-list">${monthTxs.map(txItemHTML).join('')}</div>`}
+      ${monthTxs.length === 0 ? emptyState('inbox', 'Sem transações este mês', 'Clique em "Nova Transação" para começar.', `<button class="btn btn-primary btn-sm" id="emptyAdd">${icon('plus')}<span>Adicionar</span></button>`) : renderGroupedTransactionList(monthTxs)}
     </div>
   `;
 
@@ -338,6 +496,7 @@ function renderDashboard(c) {
   c.querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.nav; render(); }));
   c.querySelectorAll('[data-tx-edit]').forEach(b => b.addEventListener('click', () => openTransactionModal(b.dataset.txEdit)));
   c.querySelectorAll('[data-tx-del]').forEach(b => b.addEventListener('click', () => deleteTransaction(b.dataset.txDel)));
+  c.querySelectorAll('[data-tx-dup]').forEach(b => b.addEventListener('click', () => duplicateTransaction(b.dataset.txDup)));
   const emptyAdd = $('#emptyAdd'); if (emptyAdd) emptyAdd.addEventListener('click', () => openTransactionModal());
 
   drawEvolutionChart();
@@ -376,6 +535,7 @@ function txItemHTML(tx) {
       </div>
       <div class="tx-amount ${tx.type}">${sign}${fmtBRL(tx.amount)}</div>
       <div class="tx-actions">
+        <button class="icon-btn icon-btn-sm" data-tx-dup="${tx.id}" title="Duplicar">${icon('copy')}</button>
         <button class="icon-btn icon-btn-sm" data-tx-edit="${tx.id}" title="Editar">${icon('pencil')}</button>
         <button class="icon-btn icon-btn-sm" data-tx-del="${tx.id}" title="Excluir">${icon('trash-2')}</button>
       </div>
@@ -390,45 +550,8 @@ function renderTransactions(c) {
   const filters = state.txFilters || { type: '', categoryId: '', accountId: '', from: '', to: '', q: '' };
   state.txFilters = filters;
 
-  let list = [...state.data.transactions];
-  if (filters.type) list = list.filter(t => t.type === filters.type);
-  if (filters.categoryId) list = list.filter(t => t.categoryId === filters.categoryId);
-  if (filters.accountId) list = list.filter(t => t.accountId === filters.accountId || t.toAccountId === filters.accountId);
-  if (filters.from) list = list.filter(t => t.date >= filters.from);
-  if (filters.to) list = list.filter(t => t.date <= filters.to);
-  if (filters.q) {
-    const q = filters.q.toLowerCase();
-    list = list.filter(t => (t.description || '').toLowerCase().includes(q));
-  }
-  list.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
-
-  const income = list.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
-  const expense = list.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
-
   c.innerHTML = `
-    <div class="grid grid-3" style="margin-bottom:1rem;">
-      <div class="stat-card income">
-        <div class="stat-head">
-          <div class="stat-label">Entradas</div>
-          <div class="stat-icon">${icon('arrow-down-left')}</div>
-        </div>
-        <div class="stat-value" style="color:var(--success);">${fmtBRL(income)}</div>
-      </div>
-      <div class="stat-card expense">
-        <div class="stat-head">
-          <div class="stat-label">Saídas</div>
-          <div class="stat-icon">${icon('arrow-up-right')}</div>
-        </div>
-        <div class="stat-value" style="color:var(--danger);">${fmtBRL(expense)}</div>
-      </div>
-      <div class="stat-card balance">
-        <div class="stat-head">
-          <div class="stat-label">Resultado</div>
-          <div class="stat-icon">${icon('equal')}</div>
-        </div>
-        <div class="stat-value" style="color:${income-expense>=0?'var(--success)':'var(--danger)'};">${fmtBRL(income - expense)}</div>
-      </div>
-    </div>
+    <div class="grid grid-3" style="margin-bottom:1rem;" id="txStats"></div>
 
     <div class="card">
       <div class="filters">
@@ -455,9 +578,45 @@ function renderTransactions(c) {
         <button class="btn btn-ghost btn-sm" id="fClear">${icon('x')}<span>Limpar</span></button>
       </div>
 
-      ${list.length === 0 ? emptyState('search-x', 'Nenhuma transação encontrada', 'Ajuste os filtros ou adicione uma nova.') : `<div class="transaction-list">${list.map(txItemHTML).join('')}</div>`}
+      <div id="txListWrap"></div>
     </div>
   `;
+
+  // Partial render: não re-renderiza a view toda (preserva foco dos inputs)
+  const applyTxRender = () => {
+    const filtered = filterTransactions(filters);
+    const inc = filtered.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+    const exp = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+    $('#txStats').innerHTML = `
+      <div class="stat-card income">
+        <div class="stat-head">
+          <div class="stat-label">Entradas</div>
+          <div class="stat-icon">${icon('arrow-down-left')}</div>
+        </div>
+        <div class="stat-value" style="color:var(--success);">${fmtBRL(inc)}</div>
+      </div>
+      <div class="stat-card expense">
+        <div class="stat-head">
+          <div class="stat-label">Saídas</div>
+          <div class="stat-icon">${icon('arrow-up-right')}</div>
+        </div>
+        <div class="stat-value" style="color:var(--danger);">${fmtBRL(exp)}</div>
+      </div>
+      <div class="stat-card balance">
+        <div class="stat-head">
+          <div class="stat-label">Resultado</div>
+          <div class="stat-icon">${icon('equal')}</div>
+        </div>
+        <div class="stat-value" style="color:${inc-exp>=0?'var(--success)':'var(--danger)'};">${fmtBRL(inc - exp)}</div>
+      </div>`;
+    $('#txListWrap').innerHTML = filtered.length === 0
+      ? emptyState('search-x', 'Nenhuma transação encontrada', 'Ajuste os filtros ou adicione uma nova.')
+      : renderGroupedTransactionList(filtered);
+    renderIcons($('#txStats'));
+    renderIcons($('#txListWrap'));
+  };
+
+  applyTxRender();
 
   const refresh = () => {
     filters.q = $('#fQ').value;
@@ -466,9 +625,9 @@ function renderTransactions(c) {
     filters.accountId = $('#fAcc').value;
     filters.from = $('#fFrom').value;
     filters.to = $('#fTo').value;
-    render();
+    applyTxRender();
   };
-  $('#fQ').addEventListener('input', debounce(refresh, 250));
+  $('#fQ').addEventListener('input', debounce(refresh, 180));
   $('#fType').addEventListener('change', refresh);
   $('#fCat').addEventListener('change', refresh);
   $('#fAcc').addEventListener('change', refresh);
@@ -476,16 +635,182 @@ function renderTransactions(c) {
   $('#fTo').addEventListener('change', refresh);
   $('#fClear').addEventListener('click', () => { state.txFilters = null; render(); });
 
-  c.querySelectorAll('[data-tx-edit]').forEach(b => b.addEventListener('click', () => openTransactionModal(b.dataset.txEdit)));
-  c.querySelectorAll('[data-tx-del]').forEach(b => b.addEventListener('click', () => deleteTransaction(b.dataset.txDel)));
+  // Delegação dos botões da lista — sobrevive a atualizações parciais
+  $('#txListWrap').addEventListener('click', (e) => {
+    const ed = e.target.closest('[data-tx-edit]');
+    if (ed) return openTransactionModal(ed.dataset.txEdit);
+    const dl = e.target.closest('[data-tx-del]');
+    if (dl) return deleteTransaction(dl.dataset.txDel);
+    const dp = e.target.closest('[data-tx-dup]');
+    if (dp) return duplicateTransaction(dp.dataset.txDup);
+  });
+}
+
+function filterTransactions(filters) {
+  let list = [...state.data.transactions];
+  if (filters.type) list = list.filter(t => t.type === filters.type);
+  if (filters.categoryId) list = list.filter(t => t.categoryId === filters.categoryId);
+  if (filters.accountId) list = list.filter(t => t.accountId === filters.accountId || t.toAccountId === filters.accountId);
+  if (filters.from) list = list.filter(t => t.date >= filters.from);
+  if (filters.to) list = list.filter(t => t.date <= filters.to);
+  if (filters.q) {
+    const q = filters.q.toLowerCase();
+    list = list.filter(t => (t.description || '').toLowerCase().includes(q) || (t.notes || '').toLowerCase().includes(q));
+  }
+  list.sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
+  return list;
 }
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
+// ---------- TOAST COM AÇÃO (Desfazer, etc.) ----------
+function toastWithAction(msg, actionLabel, onAction, opts = {}) {
+  const type = opts.type || 'info';
+  const duration = opts.duration || 6000;
+  const el = document.createElement('div');
+  el.className = `toast ${type} toast-action`;
+  el.innerHTML = `
+    ${icon(TOAST_ICONS[type] || 'info')}
+    <span>${escapeHtml(msg)}</span>
+    <button class="toast-action-btn">${escapeHtml(actionLabel)}</button>
+  `;
+  $('#toastContainer').appendChild(el);
+  renderIcons(el);
+  let done = false;
+  const close = () => {
+    if (done) return;
+    done = true;
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.2s';
+    setTimeout(() => el.remove(), 220);
+  };
+  const timer = setTimeout(close, duration);
+  el.querySelector('.toast-action-btn').addEventListener('click', () => {
+    clearTimeout(timer); close(); onAction();
+  });
+}
+
+// ---------- CALCULADORA INLINE ----------
+// Aceita expressões tipo "12,50 + 7,80", "100-15*2". Apenas dígitos e operadores básicos.
+function tryEvalAmount(raw) {
+  if (raw === null || raw === undefined) return NaN;
+  const s = String(raw).trim().replace(/\./g, '').replace(/,/g, '.');
+  // caracter permitidos
+  if (!/^[\d\s+\-*/().]+$/.test(s)) return NaN;
+  // bloqueia sequências suspeitas
+  if (/[+\-*/]{2,}/.test(s.replace(/--/g, '-'))) return NaN;
+  try {
+    const r = Function(`"use strict"; return (${s})`)();
+    return typeof r === 'number' && isFinite(r) ? Math.round(r * 100) / 100 : NaN;
+  } catch { return NaN; }
+}
+
+// ---------- AGRUPAMENTO POR DATA ----------
+function formatDateGroup(iso) {
+  if (!iso) return '';
+  const today = todayISO();
+  if (iso === today) return 'Hoje';
+  const d = new Date(iso + 'T00:00:00');
+  const now = new Date(today + 'T00:00:00');
+  const diffDays = Math.round((now - d) / 86400000);
+  if (diffDays === 1) return 'Ontem';
+  if (diffDays > 1 && diffDays <= 7) return `${diffDays} dias atrás`;
+  if (diffDays < 0 && diffDays >= -7) return `Em ${Math.abs(diffDays)} dia${Math.abs(diffDays)!==1?'s':''}`;
+  if (monthKey(iso) === currentMonthKey()) return d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'short' });
+  return d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^\w/, m => m.toUpperCase());
+}
+function renderGroupedTransactionList(list) {
+  if (!list.length) return '';
+  const out = [];
+  let curr = null;
+  for (const tx of list) {
+    const label = formatDateGroup(tx.date);
+    if (!curr || curr.label !== label) {
+      if (curr) out.push(curr);
+      curr = { label, items: [] };
+    }
+    curr.items.push(tx);
+  }
+  if (curr) out.push(curr);
+  return out.map(g => `
+    <div class="tx-date-group"><span>${escapeHtml(g.label)}</span></div>
+    <div class="transaction-list">${g.items.map(txItemHTML).join('')}</div>
+  `).join('');
+}
+
+// ---------- HISTÓRICO DE DESCRIÇÕES (auto-complete) ----------
+function buildDescriptionIndex() {
+  const map = new Map();
+  for (const t of state.data.transactions) {
+    const d = (t.description || '').trim();
+    if (!d) continue;
+    if (!map.has(d)) map.set(d, { count: 0, categoryId: t.categoryId, accountId: t.accountId, cardId: t.cardId, type: t.type });
+    const e = map.get(d); e.count++;
+    // mantém a mais recente (última combinação de categoria/conta)
+    e.categoryId = t.categoryId || e.categoryId;
+    e.accountId = t.accountId || e.accountId;
+    e.cardId = t.cardId || e.cardId;
+    e.type = t.type || e.type;
+  }
+  return [...map.entries()].sort((a, b) => b[1].count - a[1].count);
+}
+
+// ---------- DUPLICAR ----------
+function duplicateTransaction(id) {
+  const tx = state.data.transactions.find(t => t.id === id);
+  if (!tx) return;
+  const copy = {
+    ...JSON.parse(JSON.stringify(tx)),
+    id: uid(),
+    date: todayISO(),
+    description: ((tx.description || '') + ' (cópia)').slice(0, 200),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  delete copy.recurringId;
+  state.data.transactions.push(copy);
+  saveData();
+  toast('Transação duplicada');
+  render();
+}
+
+// ---------- COMPARATIVO vs MÊS ANTERIOR ----------
+function computeDelta(current, previous) {
+  if (!previous || previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+function deltaBadgeHtml(pct, semantic = 'normal') {
+  if (pct === null || !isFinite(pct)) return '<div class="stat-sub" style="opacity:0.6;">—</div>';
+  const up = pct >= 0;
+  // semantic: 'inverse' (receita: subir é bom), 'normal-expense' (despesa: subir é ruim), 'normal' neutro
+  let color = 'var(--text-muted)';
+  if (semantic === 'inverse') color = up ? 'var(--success)' : 'var(--danger)';
+  else if (semantic === 'normal-expense') color = up ? 'var(--danger)' : 'var(--success)';
+  const sign = up ? '+' : '';
+  return `<div class="stat-sub" style="color:${color};font-weight:600;">${sign}${pct.toFixed(0)}% vs mês anterior</div>`;
+}
+
+// ---------- PROJEÇÃO DE SALDO ----------
+function projectEndOfMonthBalance() {
+  const today = todayISO();
+  const todayDay = parseInt(today.slice(8, 10));
+  const curMonth = today.slice(0, 7);
+  let delta = 0;
+  let pending = 0;
+  state.data.recurring.forEach(r => {
+    if (r.lastApplied === curMonth) return;
+    if (r.day <= todayDay) return; // deveria ter sido aplicada já
+    if (r.type === 'income') delta += Number(r.amount);
+    else delta -= Number(r.amount);
+    pending++;
+  });
+  return { balance: totalBalance() + delta, delta, pending };
+}
+
 // ============================================================
 // TRANSACTION MODAL
 // ============================================================
-function openTransactionModal(editId = null) {
+function openTransactionModal(editId = null, preset = {}) {
   if (state.data.accounts.length === 0) {
     toast('Crie uma conta antes de adicionar transações', 'warning');
     state.view = 'accounts'; render();
@@ -493,7 +818,7 @@ function openTransactionModal(editId = null) {
   }
   const editing = editId ? state.data.transactions.find(t => t.id === editId) : null;
   const tx = editing || {
-    type: 'expense', amount: '', date: todayISO(), description: '',
+    type: preset.type || 'expense', amount: '', date: todayISO(), description: '',
     categoryId: '', accountId: state.data.accounts[0].id, toAccountId: '', cardId: '', notes: '',
   };
 
@@ -507,8 +832,8 @@ function openTransactionModal(editId = null) {
 
       <div class="form-row" style="margin-top:1rem;">
         <div class="form-group">
-          <label class="form-label">${icon('dollar-sign')}<span>Valor (R$)</span></label>
-          <input type="number" step="0.01" min="0" class="form-input" name="amount" value="${tx.amount}" required autofocus>
+          <label class="form-label">${icon('dollar-sign')}<span>Valor (R$) <span class="hint">· aceita 12,50 + 7,80</span></span></label>
+          <input type="text" inputmode="decimal" class="form-input" name="amount" value="${tx.amount}" required autofocus placeholder="0,00 ou expressão">
         </div>
         <div class="form-group">
           <label class="form-label">${icon('calendar')}<span>Data</span></label>
@@ -518,10 +843,31 @@ function openTransactionModal(editId = null) {
 
       <div class="form-group">
         <label class="form-label">${icon('file-text')}<span>Descrição</span></label>
-        <input type="text" class="form-input" name="description" value="${escapeHtml(tx.description)}" placeholder="Ex: Supermercado, Salário...">
+        <input type="text" class="form-input" name="description" value="${escapeHtml(tx.description)}" placeholder="Ex: Supermercado, Salário..." list="txDescList" autocomplete="off">
+        <datalist id="txDescList"></datalist>
       </div>
 
       <div id="txFields"></div>
+
+      <div id="installmentWrap" class="form-group" style="display:${editing ? 'none' : 'block'};">
+        <label class="form-label" style="cursor:pointer;">
+          <input type="checkbox" id="installmentToggle" style="margin-right:6px;vertical-align:middle;">
+          ${icon('layers')}<span>Parcelar em várias vezes</span>
+        </label>
+        <div id="installmentFields" style="display:none;margin-top:0.5rem;">
+          <div class="form-row">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Número de parcelas</label>
+              <input type="number" id="installmentN" min="2" max="48" value="2" class="form-input">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Valor de cada parcela</label>
+              <div id="installmentPreview" class="form-input" style="background:var(--surface-2);display:flex;align-items:center;">—</div>
+            </div>
+          </div>
+          <p style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">Serão criadas N transações mensais a partir da data selecionada.</p>
+        </div>
+      </div>
 
       <div class="form-group">
         <label class="form-label">${icon('sticky-note')}<span>Observações</span></label>
@@ -601,52 +947,171 @@ function openTransactionModal(editId = null) {
     $('#txCancel').addEventListener('click', closeModal);
     if (editing) $('#txDel').addEventListener('click', () => { closeModal(); deleteTransaction(editing.id); });
 
+    // ---- Auto-complete de descrições ----
+    const descIndex = buildDescriptionIndex();
+    const datalist = $('#txDescList');
+    datalist.innerHTML = descIndex.slice(0, 50).map(([d]) => `<option value="${escapeHtml(d)}">`).join('');
+    const descInput = document.querySelector('#txForm input[name="description"]');
+    descInput.addEventListener('change', () => {
+      const hit = descIndex.find(([d]) => d === descInput.value);
+      if (!hit) return;
+      const info = hit[1];
+      const catSel = document.querySelector('#txForm select[name="categoryId"]');
+      const paySel = document.querySelector('#txForm select[name="payment"]');
+      if (catSel && !catSel.value && info.categoryId) catSel.value = info.categoryId;
+      if (paySel && !paySel.value) {
+        if (info.cardId) paySel.value = 'card:' + info.cardId;
+        else if (info.accountId) paySel.value = 'acc:' + info.accountId;
+      }
+    });
+
+    // ---- Calculadora no campo valor ----
+    const amountInput = document.querySelector('#txForm input[name="amount"]');
+    const tryCompute = () => {
+      const r = tryEvalAmount(amountInput.value);
+      if (isFinite(r) && r > 0 && String(amountInput.value).match(/[+\-*/]/)) {
+        amountInput.value = r.toFixed(2).replace('.', ',');
+      }
+    };
+    amountInput.addEventListener('blur', tryCompute);
+    amountInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && /[+\-*/]/.test(amountInput.value)) { e.preventDefault(); tryCompute(); }
+    });
+
+    // ---- Parcelamento ----
+    const instToggle = $('#installmentToggle');
+    const instFields = $('#installmentFields');
+    const instN = $('#installmentN');
+    const instPreview = $('#installmentPreview');
+    const updateInstPreview = () => {
+      const amount = tryEvalAmount(amountInput.value);
+      const n = Math.max(2, Math.min(48, parseInt(instN?.value) || 2));
+      if (!isFinite(amount) || amount <= 0) { instPreview.textContent = '—'; return; }
+      instPreview.textContent = fmtBRL(amount / n) + ` × ${n}x`;
+    };
+    if (instToggle) {
+      instToggle.addEventListener('change', () => {
+        instFields.style.display = instToggle.checked ? 'block' : 'none';
+        updateInstPreview();
+      });
+      instN.addEventListener('input', updateInstPreview);
+      amountInput.addEventListener('input', updateInstPreview);
+    }
+
     $('#txForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const f = e.target;
-      const amount = parseFloat(f.amount.value);
+
+      // Avalia a expressão antes de validar
+      let amount = tryEvalAmount(f.amount.value);
+      if (!isFinite(amount)) amount = parseFloat(String(f.amount.value).replace(',', '.'));
       if (!(amount > 0)) return toast('Valor inválido', 'error');
 
-      const newTx = {
-        id: editing?.id || uid(), type: currentType, amount,
+      const wantsInstallment = !editing && currentType === 'expense' && instToggle?.checked;
+      const installmentN = wantsInstallment ? Math.max(2, Math.min(48, parseInt(instN.value) || 2)) : 1;
+
+      const base = {
+        type: currentType,
         date: f.date.value, description: f.description.value.trim(),
         notes: f.notes.value.trim(),
-        createdAt: editing?.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       };
 
       if (currentType === 'transfer') {
-        newTx.accountId = f.accountId.value;
-        newTx.toAccountId = f.toAccountId.value;
-        if (newTx.accountId === newTx.toAccountId) return toast('Contas devem ser diferentes', 'error');
+        base.accountId = f.accountId.value;
+        base.toAccountId = f.toAccountId.value;
+        if (base.accountId === base.toAccountId) return toast('Contas devem ser diferentes', 'error');
       } else {
-        newTx.categoryId = f.categoryId.value;
+        base.categoryId = f.categoryId.value;
         const pay = f.payment.value;
-        if (pay.startsWith('card:')) { newTx.cardId = pay.slice(5); newTx.accountId = null; }
-        else { newTx.accountId = pay.slice(4); newTx.cardId = null; }
+        if (pay.startsWith('card:')) { base.cardId = pay.slice(5); base.accountId = null; }
+        else { base.accountId = pay.slice(4); base.cardId = null; }
       }
 
       if (editing) {
+        const newTx = {
+          id: editing.id, ...base, amount,
+          createdAt: editing.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
         const idx = state.data.transactions.findIndex(t => t.id === editing.id);
         state.data.transactions[idx] = newTx;
-      } else {
-        state.data.transactions.push(newTx);
+        saveData();
+        closeModal();
+        toast('Transação atualizada');
+        checkBudgetAlert(newTx);
+        render();
+        return;
       }
-      saveData();
-      closeModal();
-      toast(editing ? 'Transação atualizada' : 'Transação adicionada');
-      render();
+
+      // Nova(s) transação(ões)
+      if (installmentN > 1) {
+        const per = Math.round((amount / installmentN) * 100) / 100;
+        const [y, m, d] = base.date.split('-').map(Number);
+        const groupTag = uid();
+        for (let i = 0; i < installmentN; i++) {
+          const dt = new Date(y, m - 1 + i, d);
+          // ajusta se cair em mês com menos dias
+          const iso = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+          const tx = {
+            id: uid(), ...base, amount: per, date: iso,
+            description: `${base.description} (${i+1}/${installmentN})`.trim(),
+            installmentGroup: groupTag,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          state.data.transactions.push(tx);
+        }
+        saveData();
+        closeModal();
+        toast(`${installmentN} parcelas criadas (${fmtBRL(per)} cada)`);
+        render();
+      } else {
+        const newTx = {
+          id: uid(), ...base, amount,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        state.data.transactions.push(newTx);
+        saveData();
+        closeModal();
+        toast('Transação adicionada');
+        checkBudgetAlert(newTx);
+        render();
+      }
     });
   });
 }
 
+function checkBudgetAlert(tx) {
+  if (tx.type !== 'expense' || !tx.categoryId) return;
+  const budget = state.data.budgets.find(b => b.categoryId === tx.categoryId);
+  if (!budget || !budget.amount) return;
+  const { start, end } = monthRange(monthKey(tx.date));
+  const spent = state.data.transactions
+    .filter(t => t.type === 'expense' && t.categoryId === tx.categoryId && t.date >= start && t.date <= end)
+    .reduce((s, t) => s + Number(t.amount), 0);
+  const pct = (spent / budget.amount) * 100;
+  const cat = state.data.categories.find(c => c.id === tx.categoryId);
+  const name = cat?.name || 'Categoria';
+  if (pct >= 100) {
+    setTimeout(() => toast(`⚠ "${name}" estourou o orçamento (${pct.toFixed(0)}% • ${fmtBRL(spent)}/${fmtBRL(budget.amount)})`, 'error'), 400);
+  } else if (pct >= 80) {
+    setTimeout(() => toast(`${name}: ${pct.toFixed(0)}% do orçamento usado`, 'warning'), 400);
+  }
+}
+
 function deleteTransaction(id) {
-  confirmDialog('Excluir esta transação?', () => {
-    state.data.transactions = state.data.transactions.filter(t => t.id !== id);
+  const idx = state.data.transactions.findIndex(t => t.id === id);
+  if (idx < 0) return;
+  const tx = state.data.transactions[idx];
+  state.data.transactions.splice(idx, 1);
+  saveData();
+  render();
+  toastWithAction('Transação excluída', 'Desfazer', () => {
+    state.data.transactions.splice(idx, 0, tx);
     saveData();
-    toast('Transação excluída');
     render();
-  });
+  }, { type: 'info', duration: 8000 });
 }
 
 // ============================================================
@@ -1328,9 +1793,12 @@ function renderRecurring(c) {
     <div class="section-header">
       <div class="section-title-group">
         <div class="section-title">Transações Recorrentes</div>
-        <div class="section-subtitle">Aplicadas automaticamente todo mês</div>
+        <div class="section-subtitle">Aplicadas automaticamente no dia do mês configurado</div>
       </div>
-      <button class="btn btn-primary btn-sm" id="addRec">${icon('plus')}<span>Nova recorrente</span></button>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm" id="applyRecNow" title="Aplica agora as pendentes deste mês">${icon('play')}<span>Aplicar agora</span></button>
+        <button class="btn btn-primary btn-sm" id="addRec">${icon('plus')}<span>Nova recorrente</span></button>
+      </div>
     </div>
     ${state.data.recurring.length === 0
       ? emptyState('repeat', 'Sem recorrências', 'Cadastre salário, aluguel, assinaturas...', `<button class="btn btn-primary btn-sm" id="firstRec">${icon('plus')}<span>Criar recorrência</span></button>`)
@@ -1356,6 +1824,11 @@ function renderRecurring(c) {
   `;
   $('#addRec')?.addEventListener('click', () => openRecurringModal());
   $('#firstRec')?.addEventListener('click', () => openRecurringModal());
+  $('#applyRecNow')?.addEventListener('click', () => {
+    const n = applyRecurringRules();
+    if (n === 0) toast('Nenhuma recorrência pendente para este mês', 'info');
+    render();
+  });
   c.querySelectorAll('[data-rec-edit]').forEach(b => b.addEventListener('click', () => openRecurringModal(b.dataset.recEdit)));
   c.querySelectorAll('[data-rec-del]').forEach(b => b.addEventListener('click', () => deleteRecurring(b.dataset.recDel)));
 }
@@ -1475,6 +1948,7 @@ function applyRecurringRules() {
     saveData();
     toast(`${applied} recorrência(s) aplicada(s)`, 'info');
   }
+  return applied;
 }
 
 // ============================================================
@@ -1512,139 +1986,546 @@ function renderReports(c) {
 // VIEW: SETTINGS
 // ============================================================
 function renderSettings(c) {
+  const ap = state.appearance;
+  const u = state.user;
+
   c.innerHTML = `
     <div class="grid grid-2">
+      <!-- ================== PERFIL ================== -->
       <div class="card">
-        <div class="card-title"><div class="card-title-left">${icon('users')}<span>Perfis</span></div></div>
-        <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.75rem;">Renomeie os perfis. Os dados de cada perfil ficam separados.</p>
+        <div class="card-title"><div class="card-title-left">${icon('user')}<span>Seu perfil</span></div></div>
+        <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.875rem;">Personalize como você aparece no aplicativo.</p>
+
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+          <div class="user-avatar" style="width:64px;height:64px;font-size:2rem;">${u.avatar || '💼'}</div>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:1.125rem;">${escapeHtml(u.name || 'Você')}</div>
+            <div style="font-size:0.8125rem;color:var(--text-muted);">${escapeHtml(u.title || '')}</div>
+          </div>
+        </div>
+
         <div class="form-group">
-          <label class="form-label">Perfil 1</label>
-          <input type="text" class="form-input" id="p1" value="${escapeHtml(state.profiles[0] || '')}">
+          <label class="form-label">${icon('type')}<span>Nome</span></label>
+          <input type="text" class="form-input" id="uName" value="${escapeHtml(u.name || '')}" maxlength="40" placeholder="Seu nome">
         </div>
         <div class="form-group">
-          <label class="form-label">Perfil 2</label>
-          <input type="text" class="form-input" id="p2" value="${escapeHtml(state.profiles[1] || '')}">
+          <label class="form-label">${icon('briefcase')}<span>Título / subtítulo</span></label>
+          <input type="text" class="form-input" id="uTitle" value="${escapeHtml(u.title || '')}" maxlength="60" placeholder="Ex: Gestão Financeira, Analista...">
         </div>
-        <button class="btn btn-primary btn-sm" id="saveProfiles">${icon('check')}<span>Salvar nomes</span></button>
+        <div class="form-group">
+          <label class="form-label">${icon('smile')}<span>Avatar</span></label>
+          <div class="avatar-grid" id="avatarGrid">
+            ${AVATAR_OPTIONS.map(av => `<div class="avatar-opt ${av===u.avatar?'active':''}" data-avatar="${av}">${av}</div>`).join('')}
+          </div>
+        </div>
       </div>
 
+      <!-- ================== TEMA ================== -->
       <div class="card">
-        <div class="card-title"><div class="card-title-left">${icon('database')}<span>Backup</span></div></div>
-        <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.75rem;">Exporte/importe os dados do perfil atual como JSON.</p>
+        <div class="card-title"><div class="card-title-left">${icon('palette')}<span>Tema de cores</span></div><span class="badge income">${THEMES.length}</span></div>
+        <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.875rem;">Escolha a paleta. Dica: pressione <kbd>T</kbd> para alternar rápido entre claro e escuro.</p>
+        <div class="theme-grid">
+          ${THEMES.map(t => `
+            <div class="theme-swatch ${ap.theme===t.id?'active':''}" data-theme-id="${t.id}" title="${t.name}">
+              <div class="theme-swatch-preview">
+                <div style="background:${t.colors[0]};"></div>
+                <div style="background:${t.colors[1]};"></div>
+                <div style="background:${t.colors[2]};"></div>
+              </div>
+              <div class="theme-swatch-label">
+                <span class="theme-swatch-name">${t.name}</span>
+                <span class="theme-swatch-kind">${t.kind}</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- ================== COR DE DESTAQUE ================== -->
+      <div class="card">
+        <div class="card-title"><div class="card-title-left">${icon('droplet')}<span>Cor de destaque</span></div></div>
+        <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.875rem;">Sobrescreve a cor primária do tema escolhido. Afeta botões, links e realces.</p>
+        <div class="accent-picker">
+          <div class="accent-chip accent-auto ${!ap.accent ? 'active' : ''}" data-accent="" title="Usar cor do tema"></div>
+          ${ACCENT_PALETTE.map(hex => `
+            <div class="accent-chip ${ap.accent === hex ? 'active' : ''}" style="background:${hex};" data-accent="${hex}" title="${hex}"></div>
+          `).join('')}
+          <label class="accent-chip accent-custom" title="Cor personalizada" style="position:relative;">
+            ${icon('pipette', 'xs')}
+            <input type="color" id="accentCustom" value="${ap.accent || '#6366f1'}" style="position:absolute;inset:0;opacity:0;cursor:pointer;">
+          </label>
+        </div>
+        ${ap.accent ? `<p style="font-size:0.75rem;color:var(--text-muted);margin-top:0.625rem;">Atual: <code style="color:${ap.accent};font-weight:700;">${ap.accent}</code></p>` : ''}
+      </div>
+
+      <!-- ================== LAYOUT & TIPOGRAFIA ================== -->
+      <div class="card">
+        <div class="card-title"><div class="card-title-left">${icon('sliders')}<span>Layout & Tipografia</span></div></div>
+
+        <div class="setting-row">
+          <div>
+            <div class="setting-row-label">Escala da fonte</div>
+            <div class="setting-row-desc">Tamanho geral dos textos</div>
+          </div>
+          <div class="segmented" id="fontScaleSeg">
+            <button data-fs="0.9" class="${ap.fontScale===0.9?'active':''}">90%</button>
+            <button data-fs="1" class="${ap.fontScale===1?'active':''}">100%</button>
+            <button data-fs="1.1" class="${ap.fontScale===1.1?'active':''}">110%</button>
+            <button data-fs="1.25" class="${ap.fontScale===1.25?'active':''}">125%</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <div class="setting-row-label">Densidade</div>
+            <div class="setting-row-desc">Espaçamento interno dos cards</div>
+          </div>
+          <div class="segmented" id="densitySeg">
+            <button data-dn="compact" class="${ap.density==='compact'?'active':''}">Compacto</button>
+            <button data-dn="normal" class="${ap.density==='normal'?'active':''}">Normal</button>
+            <button data-dn="comfortable" class="${ap.density==='comfortable'?'active':''}">Confortável</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <div class="setting-row-label">Cantos</div>
+            <div class="setting-row-desc">Arredondamento dos componentes</div>
+          </div>
+          <div class="segmented" id="radiusSeg">
+            <button data-rd="sharp" class="${ap.radius==='sharp'?'active':''}">Reto</button>
+            <button data-rd="rounded" class="${ap.radius==='rounded'?'active':''}">Arredondado</button>
+            <button data-rd="pill" class="${ap.radius==='pill'?'active':''}">Pílula</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <div class="setting-row-label">Brilho ambiente</div>
+            <div class="setting-row-desc">Gradientes coloridos no fundo</div>
+          </div>
+          <div class="switch ${ap.showGlow !== false ? 'on' : ''}" id="glowSwitch" role="switch" aria-checked="${ap.showGlow !== false}"></div>
+        </div>
+
+        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);display:flex;gap:0.5rem;">
+          <button class="btn btn-ghost btn-sm" id="resetAppearance">${icon('rotate-ccw')}<span>Restaurar padrão</span></button>
+        </div>
+      </div>
+
+      <!-- ================== BACKUP & DADOS ================== -->
+      <div class="card">
+        <div class="card-title"><div class="card-title-left">${icon('database')}<span>Backup & Dados</span></div></div>
+        <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.75rem;">${IS_ELECTRON ? 'Backups automáticos diários são salvos na pasta de dados. Você também pode exportar manualmente.' : 'Exporte para fazer backup dos seus dados.'}</p>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-          <button class="btn btn-ghost btn-sm" id="exportBtn">${icon('download')}<span>Exportar</span></button>
+          <button class="btn btn-ghost btn-sm" id="exportBtn">${icon('download')}<span>Exportar JSON</span></button>
+          <button class="btn btn-ghost btn-sm" id="exportCsvBtn">${icon('file-text')}<span>Exportar CSV</span></button>
           <button class="btn btn-ghost btn-sm" id="importBtn">${icon('upload')}<span>Importar</span></button>
           <input type="file" id="importFile" accept=".json" style="display:none;">
         </div>
+        ${IS_ELECTRON ? `
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.625rem;">
+            <button class="btn btn-ghost btn-sm" id="openUserDataBtn">${icon('folder-open')}<span>Pasta de dados</span></button>
+            <button class="btn btn-ghost btn-sm" id="openBackupsBtn">${icon('archive')}<span>Pasta de backups</span></button>
+            <button class="btn btn-ghost btn-sm" id="listBackupsBtn">${icon('history')}<span>Ver backups</span></button>
+          </div>
+        ` : ''}
         <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);">
-          <button class="btn btn-danger btn-sm" id="resetBtn">${icon('alert-triangle')}<span>Resetar perfil</span></button>
+          <button class="btn btn-danger btn-sm" id="resetBtn">${icon('alert-triangle')}<span>Resetar todos os dados</span></button>
         </div>
       </div>
 
+      <!-- ================== SOBRE ================== -->
       <div class="card">
         <div class="card-title"><div class="card-title-left">${icon('info')}<span>Sobre</span></div></div>
         <p style="font-size:0.8125rem;color:var(--text-muted);line-height:1.6;">
-          <strong>${APP_NAME}</strong> é 100% local. Todos os dados ficam no navegador (localStorage).
-          Não há servidor nem sincronização. Use a opção de exportar para fazer backups.
+          <strong>${APP_NAME}</strong> • Gestão financeira 100% local e offline.
         </p>
         <div style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.5rem;font-size:0.8125rem;">
-          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Perfil ativo</span><strong>${escapeHtml(state.profile)}</strong></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Transações</span><strong>${state.data.transactions.length}</strong></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Contas</span><strong>${state.data.accounts.length}</strong></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Cartões</span><strong>${state.data.cards.length}</strong></div>
           <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Categorias</span><strong>${state.data.categories.length}</strong></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title"><div class="card-title-left">${icon('palette')}<span>Aparência</span></div></div>
-        <div class="form-group">
-          <label class="form-label">Tema</label>
-          <div class="type-selector" style="grid-template-columns:1fr 1fr;">
-            <div class="type-option ${state.theme==='light'?'active income':''}" data-theme="light">${icon('sun')}<span>Claro</span></div>
-            <div class="type-option ${state.theme==='dark'?'active income':''}" data-theme="dark">${icon('moon')}<span>Escuro</span></div>
-          </div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Orçamentos</span><strong>${state.data.budgets.length}</strong></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Metas</span><strong>${state.data.goals.length}</strong></div>
+          <div style="display:flex;justify-content:space-between;"><span style="color:var(--text-muted);">Recorrentes</span><strong>${state.data.recurring.length}</strong></div>
         </div>
       </div>
     </div>
   `;
 
-  $('#saveProfiles').addEventListener('click', () => {
-    const p1 = $('#p1').value.trim();
-    const p2 = $('#p2').value.trim();
-    if (!p1 || !p2) return toast('Nomes não podem ser vazios', 'error');
-    if (p1.toLowerCase() === p2.toLowerCase()) return toast('Perfis devem ter nomes diferentes', 'error');
-    const oldProfiles = [...state.profiles], oldActive = state.profile, newProfiles = [p1, p2];
-    [0, 1].forEach(i => {
-      if (oldProfiles[i] !== newProfiles[i]) {
-        const oldKey = profileKey(oldProfiles[i]);
-        const raw = localStorage.getItem(oldKey);
-        if (raw) { localStorage.setItem(profileKey(newProfiles[i]), raw); localStorage.removeItem(oldKey); }
-      }
-    });
-    state.profiles = newProfiles;
-    if (oldActive === oldProfiles[0]) state.profile = newProfiles[0];
-    else if (oldActive === oldProfiles[1]) state.profile = newProfiles[1];
+  // ----- Perfil -----
+  const saveUserDebounced = debounce(() => { saveMeta(); renderUserCard(); }, 250);
+  $('#uName').addEventListener('input', e => { state.user.name = e.target.value.slice(0, 40); saveUserDebounced(); });
+  $('#uTitle').addEventListener('input', e => { state.user.title = e.target.value.slice(0, 60); saveUserDebounced(); });
+  $('#avatarGrid').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-avatar]'); if (!t) return;
+    state.user.avatar = t.dataset.avatar;
+    $$('#avatarGrid .avatar-opt').forEach(el => el.classList.toggle('active', el.dataset.avatar === state.user.avatar));
+    $('.card .user-avatar').textContent = state.user.avatar;
     saveMeta();
-    renderProfileButtons();
-    toast('Perfis atualizados');
-    render();
+    renderUserCard();
   });
 
+  // ----- Tema -----
+  c.querySelectorAll('[data-theme-id]').forEach(el => {
+    el.addEventListener('click', () => {
+      state.appearance.theme = el.dataset.themeId;
+      applyAppearance();
+      saveMeta();
+      c.querySelectorAll('[data-theme-id]').forEach(x => x.classList.toggle('active', x.dataset.themeId === state.appearance.theme));
+    });
+  });
+
+  // ----- Accent -----
+  c.querySelectorAll('[data-accent]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      state.appearance.accent = el.dataset.accent || null;
+      applyAppearance();
+      saveMeta();
+      render();
+    });
+  });
+  $('#accentCustom').addEventListener('input', (e) => {
+    state.appearance.accent = e.target.value;
+    applyAppearance();
+  });
+  $('#accentCustom').addEventListener('change', () => { saveMeta(); render(); });
+
+  // ----- Font scale -----
+  $('#fontScaleSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-fs]'); if (!b) return;
+    state.appearance.fontScale = Number(b.dataset.fs);
+    applyAppearance(); saveMeta();
+    $$('#fontScaleSeg button').forEach(x => x.classList.toggle('active', x === b));
+  });
+
+  // ----- Densidade -----
+  $('#densitySeg').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dn]'); if (!b) return;
+    state.appearance.density = b.dataset.dn;
+    applyAppearance(); saveMeta();
+    $$('#densitySeg button').forEach(x => x.classList.toggle('active', x === b));
+  });
+
+  // ----- Raio -----
+  $('#radiusSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rd]'); if (!b) return;
+    state.appearance.radius = b.dataset.rd;
+    applyAppearance(); saveMeta();
+    $$('#radiusSeg button').forEach(x => x.classList.toggle('active', x === b));
+  });
+
+  // ----- Glow switch -----
+  $('#glowSwitch').addEventListener('click', () => {
+    state.appearance.showGlow = !(state.appearance.showGlow !== false);
+    applyAppearance(); saveMeta();
+    $('#glowSwitch').classList.toggle('on', state.appearance.showGlow !== false);
+  });
+
+  $('#resetAppearance').addEventListener('click', () => {
+    confirmDialog('Restaurar aparência padrão?', () => {
+      state.appearance = { ...DEFAULT_APPEARANCE };
+      applyAppearance();
+      saveMeta();
+      render();
+      toast('Aparência restaurada');
+    }, { danger: false, okText: 'Restaurar' });
+  });
+
+  // ----- Backup & Dados -----
   $('#exportBtn').addEventListener('click', exportData);
-  $('#importBtn').addEventListener('click', () => $('#importFile').click());
+  $('#exportCsvBtn')?.addEventListener('click', exportCsv);
+  $('#importBtn').addEventListener('click', () => {
+    if (IS_ELECTRON) importData();
+    else $('#importFile').click();
+  });
   $('#importFile').addEventListener('change', importData);
+  $('#openUserDataBtn')?.addEventListener('click', () => window.electronAPI.openUserDataFolder());
+  $('#openBackupsBtn')?.addEventListener('click', () => window.electronAPI.openBackupsFolder());
+  $('#listBackupsBtn')?.addEventListener('click', showBackupsModal);
   $('#resetBtn').addEventListener('click', () => {
-    confirmDialog(`Apagar TODOS os dados do perfil "${state.profile}"?`, () => {
+    confirmDialog('Apagar TODOS os seus dados financeiros? (configurações de aparência serão preservadas)', () => {
       state.data = buildDefaultData();
       saveData();
       toast('Dados resetados');
       render();
     });
   });
+}
 
-  c.querySelectorAll('[data-theme]').forEach(el => {
-    el.addEventListener('click', () => {
-      state.theme = el.dataset.theme;
-      applyTheme();
-      saveMeta();
-      render();
+// ---------- VALIDAÇÃO DE SCHEMA (import) ----------
+const VALID_TX_TYPES = new Set(['income', 'expense', 'transfer']);
+const VALID_ACC_TYPES = new Set(['checking', 'savings', 'cash', 'investment', 'other']);
+const VALID_CAT_TYPES = new Set(['income', 'expense']);
+const SAFE_ICON_RE = /^[\p{Extended_Pictographic}\u200d\uFE0F0-9#*]{1,6}$/u;
+const SAFE_COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;
+
+function sanitizeIcon(v, fallback = '📦') {
+  const s = String(v ?? '');
+  return SAFE_ICON_RE.test(s) ? s : fallback;
+}
+function sanitizeColor(v, fallback = '#6366f1') {
+  const s = String(v ?? '');
+  return SAFE_COLOR_RE.test(s) ? s : fallback;
+}
+function sanitizeStr(v, max = 200) {
+  return String(v ?? '').slice(0, max);
+}
+function validateAndNormalizeData(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('JSON não é um objeto');
+  const errs = [];
+  const out = buildDefaultData();
+
+  if (Array.isArray(raw.accounts)) {
+    out.accounts = raw.accounts.filter(a => a && typeof a === 'object' && a.id && a.name).map(a => ({
+      id: sanitizeStr(a.id, 40),
+      name: sanitizeStr(a.name, 80),
+      type: VALID_ACC_TYPES.has(a.type) ? a.type : 'other',
+      balance: Number(a.balance) || 0,
+      icon: sanitizeIcon(a.icon, '🏦'),
+    }));
+  } else errs.push('accounts');
+
+  if (Array.isArray(raw.categories)) {
+    out.categories = raw.categories.filter(c => c && c.id && c.name).map(c => ({
+      id: sanitizeStr(c.id, 40),
+      name: sanitizeStr(c.name, 60),
+      type: VALID_CAT_TYPES.has(c.type) ? c.type : 'expense',
+      icon: sanitizeIcon(c.icon),
+      color: sanitizeColor(c.color),
+    }));
+  } else errs.push('categories');
+
+  if (Array.isArray(raw.cards)) {
+    out.cards = raw.cards.filter(c => c && c.id && c.name).map(c => ({
+      id: sanitizeStr(c.id, 40),
+      name: sanitizeStr(c.name, 60),
+      last4: sanitizeStr(c.last4, 4).replace(/[^0-9]/g, ''),
+      limit: Number(c.limit) || 0,
+      closingDay: Math.min(31, Math.max(1, parseInt(c.closingDay) || 1)),
+      dueDay: Math.min(31, Math.max(1, parseInt(c.dueDay) || 1)),
+      color: CARD_COLORS.includes(c.color) ? c.color : 'purple',
+    }));
+  }
+
+  if (Array.isArray(raw.transactions)) {
+    out.transactions = raw.transactions.filter(t => t && t.id && VALID_TX_TYPES.has(t.type) && /^\d{4}-\d{2}-\d{2}$/.test(t.date)).map(t => ({
+      id: sanitizeStr(t.id, 40),
+      type: t.type,
+      amount: Math.max(0, Number(t.amount) || 0),
+      date: t.date,
+      description: sanitizeStr(t.description, 200),
+      notes: sanitizeStr(t.notes, 1000),
+      categoryId: sanitizeStr(t.categoryId, 40),
+      accountId: t.accountId ? sanitizeStr(t.accountId, 40) : null,
+      toAccountId: t.toAccountId ? sanitizeStr(t.toAccountId, 40) : null,
+      cardId: t.cardId ? sanitizeStr(t.cardId, 40) : null,
+      createdAt: sanitizeStr(t.createdAt, 40) || new Date().toISOString(),
+      updatedAt: sanitizeStr(t.updatedAt, 40),
+      recurringId: t.recurringId ? sanitizeStr(t.recurringId, 40) : undefined,
+    }));
+  }
+
+  if (Array.isArray(raw.budgets)) {
+    out.budgets = raw.budgets.filter(b => b && b.id && b.categoryId).map(b => ({
+      id: sanitizeStr(b.id, 40),
+      categoryId: sanitizeStr(b.categoryId, 40),
+      amount: Math.max(0, Number(b.amount) || 0),
+    }));
+  }
+
+  if (Array.isArray(raw.goals)) {
+    out.goals = raw.goals.filter(g => g && g.id && g.name).map(g => ({
+      id: sanitizeStr(g.id, 40),
+      name: sanitizeStr(g.name, 100),
+      target: Math.max(0, Number(g.target) || 0),
+      current: Math.max(0, Number(g.current) || 0),
+      deadline: /^\d{4}-\d{2}-\d{2}$/.test(g.deadline) ? g.deadline : null,
+      icon: sanitizeIcon(g.icon, '🏆'),
+    }));
+  }
+
+  if (Array.isArray(raw.recurring)) {
+    out.recurring = raw.recurring.filter(r => r && r.id && VALID_CAT_TYPES.has(r.type)).map(r => ({
+      id: sanitizeStr(r.id, 40),
+      type: r.type,
+      amount: Math.max(0, Number(r.amount) || 0),
+      day: Math.min(31, Math.max(1, parseInt(r.day) || 1)),
+      description: sanitizeStr(r.description, 200),
+      categoryId: sanitizeStr(r.categoryId, 40),
+      accountId: sanitizeStr(r.accountId, 40),
+      lastApplied: sanitizeStr(r.lastApplied, 10),
+    }));
+  }
+
+  if (errs.length) throw new Error('Campos obrigatórios ausentes: ' + errs.join(', '));
+  return out;
+}
+
+// ---------- EXPORT ----------
+function buildExportPayload() {
+  return {
+    app: APP_NAME, version: '2.0.0',
+    exportedAt: new Date().toISOString(),
+    user: state.user, appearance: state.appearance,
+    data: state.data,
+  };
+}
+
+function buildCsv() {
+  const header = ['data', 'tipo', 'valor', 'categoria', 'conta', 'cartao', 'conta_destino', 'descricao', 'observacoes'];
+  const catById = Object.fromEntries(state.data.categories.map(c => [c.id, c.name]));
+  const accById = Object.fromEntries(state.data.accounts.map(a => [a.id, a.name]));
+  const cardById = Object.fromEntries(state.data.cards.map(c => [c.id, c.name]));
+  const esc = (v) => {
+    const s = String(v ?? '');
+    return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = [...state.data.transactions]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(t => [
+      t.date, t.type, Number(t.amount).toFixed(2).replace('.', ','),
+      catById[t.categoryId] || '',
+      accById[t.accountId] || '',
+      cardById[t.cardId] || '',
+      accById[t.toAccountId] || '',
+      t.description || '',
+      (t.notes || '').replace(/\n/g, ' '),
+    ].map(esc).join(';'));
+  return '\ufeff' + [header.join(';'), ...rows].join('\r\n');
+}
+
+async function exportData() {
+  const payload = buildExportPayload();
+  const json = JSON.stringify(payload, null, 2);
+  const safeName = (state.user.name || 'bank').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const defaultName = `bank_${safeName}_${todayISO()}.json`;
+
+  if (IS_ELECTRON) {
+    const r = await window.electronAPI.saveDialog({
+      defaultName,
+      content: json,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
     });
+    if (r.ok) toast('Backup exportado');
+    else if (!r.canceled) toast('Falha ao exportar', 'error');
+    return;
+  }
+  downloadBlob(json, defaultName, 'application/json');
+  toast('Backup exportado');
+}
+
+async function exportCsv() {
+  if (state.data.transactions.length === 0) return toast('Sem transações para exportar', 'warning');
+  const csv = buildCsv();
+  const safeName = (state.user.name || 'bank').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const defaultName = `bank_${safeName}_${todayISO()}.csv`;
+
+  if (IS_ELECTRON) {
+    const r = await window.electronAPI.saveDialog({
+      defaultName,
+      content: csv,
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    });
+    if (r.ok) toast('CSV exportado');
+    else if (!r.canceled) toast('Falha ao exportar', 'error');
+    return;
+  }
+  downloadBlob(csv, defaultName, 'text/csv;charset=utf-8');
+  toast('CSV exportado');
+}
+
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function showBackupsModal() {
+  const res = await window.electronAPI.listBackups();
+  if (!res?.ok) return toast('Falha ao listar backups', 'error');
+  const files = res.files || [];
+  const body = `
+    <p style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.75rem;">Backups diários automáticos (últimos 14 dias). Abra a pasta para restaurar manualmente.</p>
+    ${files.length === 0 ? `<div class="empty-text" style="padding:0.5rem;">Nenhum backup ainda. Faça alguma alteração para gerar o primeiro.</div>` : `
+      <div class="transaction-list">
+        ${files.map(f => `
+          <div class="transaction-item">
+            <div class="tx-icon" style="background:#6366f122;color:#6366f1;">📦</div>
+            <div class="tx-body">
+              <div class="tx-title">${escapeHtml(f.name)}</div>
+              <div class="tx-meta">${new Date(f.mtime).toLocaleString('pt-BR')} • ${(f.size / 1024).toFixed(1)} KB</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `}
+    <div class="form-actions" style="margin-top:1rem;">
+      <button class="btn btn-ghost" id="bkClose">Fechar</button>
+      <button class="btn btn-primary" id="bkOpen">${icon('folder-open')}<span>Abrir pasta</span></button>
+    </div>
+  `;
+  openModal('Backups automáticos', body, () => {
+    $('#bkClose').addEventListener('click', closeModal);
+    $('#bkOpen').addEventListener('click', () => window.electronAPI.openBackupsFolder());
   });
 }
 
-function exportData() {
-  const blob = new Blob([JSON.stringify({
-    app: APP_NAME, profile: state.profile,
-    exportedAt: new Date().toISOString(), data: state.data,
-  }, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `bank_${state.profile}_${todayISO()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('Backup exportado');
-}
-function importData(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    try {
-      const parsed = JSON.parse(ev.target.result);
-      const data = parsed.data || parsed;
-      if (!data.accounts || !data.categories) throw new Error('invalid');
-      confirmDialog(`Importar dados? Isso SUBSTITUI tudo do perfil "${state.profile}".`, () => {
-        state.data = { ...buildDefaultData(), ...data };
-        saveData();
-        toast('Dados importados');
-        render();
-      });
-    } catch { toast('Arquivo inválido', 'error'); }
-  };
-  reader.readAsText(file);
-  e.target.value = '';
+async function importData(e) {
+  let text;
+  if (IS_ELECTRON) {
+    const r = await window.electronAPI.openDialog();
+    if (!r.ok) { if (!r.canceled) toast('Falha ao abrir arquivo', 'error'); return; }
+    text = r.content;
+  } else {
+    const file = e?.target?.files?.[0];
+    if (!file) return;
+    text = await file.text();
+    e.target.value = '';
+  }
+
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch { return toast('Arquivo não é JSON válido', 'error'); }
+
+  // Extrai o bloco de dados (aceita formato novo, formato antigo multi-perfil, ou raw)
+  let payload = null;
+  let importedUser = null;
+  let importedAppearance = null;
+
+  if (parsed && parsed.data && typeof parsed.data === 'object') {
+    payload = parsed.data;
+    importedUser = parsed.user;
+    importedAppearance = parsed.appearance;
+  } else if (parsed && parsed.profiles && typeof parsed.profiles === 'object') {
+    // Legado multi-perfil: pega o ativo ou o primeiro
+    const activeKey = parsed.activeProfile;
+    const firstKey = activeKey && parsed.profiles[activeKey] ? activeKey : Object.keys(parsed.profiles)[0];
+    payload = firstKey ? parsed.profiles[firstKey] : null;
+  } else if (parsed && (parsed.accounts || parsed.categories || parsed.transactions)) {
+    payload = parsed;
+  }
+
+  if (!payload) return toast('Arquivo não contém dados reconhecíveis', 'error');
+
+  let validated;
+  try { validated = validateAndNormalizeData(payload); }
+  catch (err) { return toast('Arquivo inválido: ' + err.message, 'error'); }
+
+  confirmDialog('Importar dados? Isso SUBSTITUI todos os dados atuais.', () => {
+    state.data = validated;
+    if (importedUser) state.user = { ...DEFAULT_USER, ...importedUser };
+    if (importedAppearance) {
+      state.appearance = { ...DEFAULT_APPEARANCE, ...importedAppearance };
+      applyAppearance();
+    }
+    saveData(); saveMeta(); renderUserCard();
+    toast('Dados importados');
+    render();
+  });
 }
 
 // ============================================================
@@ -1811,39 +2692,98 @@ function drawReportsCharts(months) {
 }
 
 // ============================================================
-// THEME
+// APARÊNCIA (temas, densidade, fonte, raio, accent)
 // ============================================================
-function applyTheme() {
-  document.documentElement.setAttribute('data-theme', state.theme);
+function hexToRgba(hex, alpha) {
+  const h = hex.replace('#', '');
+  const v = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const r = parseInt(v.slice(0, 2), 16);
+  const g = parseInt(v.slice(2, 4), 16);
+  const b = parseInt(v.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+function shadeHex(hex, amount) {
+  const h = hex.replace('#', '');
+  const v = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const channels = [0, 2, 4].map(i => {
+    let n = parseInt(v.slice(i, i + 2), 16) + amount;
+    return Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0');
+  });
+  return '#' + channels.join('');
+}
+
+function applyAppearance() {
+  const ap = state.appearance;
+  const root = document.documentElement;
+
+  // Tema base
+  root.setAttribute('data-theme', ap.theme || 'midnight');
+  root.setAttribute('data-density', ap.density || 'normal');
+  root.setAttribute('data-radius', ap.radius || 'rounded');
+
+  // Cor de destaque customizada — sobrescreve o --primary do tema
+  if (ap.accent) {
+    root.style.setProperty('--primary', ap.accent);
+    root.style.setProperty('--primary-hover', shadeHex(ap.accent, -20));
+    root.style.setProperty('--primary-light', hexToRgba(ap.accent, 0.14));
+    root.style.setProperty('--primary-ring', hexToRgba(ap.accent, 0.28));
+    root.style.setProperty('--shadow-glow', `0 8px 32px ${hexToRgba(ap.accent, 0.3)}`);
+  } else {
+    root.style.removeProperty('--primary');
+    root.style.removeProperty('--primary-hover');
+    root.style.removeProperty('--primary-light');
+    root.style.removeProperty('--primary-ring');
+    root.style.removeProperty('--shadow-glow');
+  }
+
+  // Escala de fonte (muda o tamanho do <html>)
+  const scale = Number(ap.fontScale) || 1;
+  root.style.setProperty('font-size', `${Math.round(14 * scale * 10) / 10}px`);
+
+  // Brilho ambiente
+  const glow = document.querySelector('.bg-gradients');
+  if (glow) glow.style.display = ap.showGlow === false ? 'none' : '';
+
+  // Atualiza botão de tema rápido (moon/sun) da sidebar
+  const curr = THEMES.find(t => t.id === ap.theme);
+  const isDark = curr?.kind === 'dark';
   const ic = $('#themeIcon');
   const lb = $('#themeLabel');
   if (ic) {
-    ic.setAttribute('data-lucide', state.theme === 'dark' ? 'sun' : 'moon');
+    ic.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
     renderIcons($('#themeToggle'));
   }
-  if (lb) lb.textContent = state.theme === 'dark' ? 'Modo claro' : 'Modo escuro';
+  if (lb) lb.textContent = isDark ? 'Modo claro' : 'Modo escuro';
+}
+
+function quickToggleTheme() {
+  // Alterna entre o tema claro e escuro "padrão" preservando outras preferências
+  const curr = THEMES.find(t => t.id === state.appearance.theme);
+  const isDark = curr?.kind === 'dark';
+  state.appearance.theme = isDark ? 'daylight' : 'midnight';
+  applyAppearance();
+  saveMeta();
+  render();
 }
 
 // ============================================================
-// PROFILE SWITCHER
+// USER CARD (sidebar)
 // ============================================================
-function renderProfileButtons() {
-  const c = $('#profileButtons');
-  c.innerHTML = state.profiles.map(p =>
-    `<button class="profile-btn ${p===state.profile?'active':''}" data-profile="${escapeHtml(p)}">${escapeHtml(p)}</button>`
-  ).join('');
-  c.querySelectorAll('[data-profile]').forEach(b => {
-    b.addEventListener('click', () => {
-      if (b.dataset.profile === state.profile) return;
-      state.profile = b.dataset.profile;
-      state.data = loadProfileData(state.profile);
-      saveMeta();
-      renderProfileButtons();
-      applyRecurringRules();
-      render();
-      toast(`Perfil: ${state.profile}`, 'info');
-    });
-  });
+function renderUserCard() {
+  const c = $('#userCard');
+  if (!c) return;
+  c.innerHTML = `
+    <button class="user-card-btn" id="userCardBtn" title="Editar perfil">
+      <div class="user-avatar">${state.user.avatar || '💼'}</div>
+      <div class="user-meta">
+        <div class="user-name">${escapeHtml(state.user.name || 'Você')}</div>
+        <div class="user-title">${escapeHtml(state.user.title || 'Gestão Financeira')}</div>
+      </div>
+      ${icon('settings-2', 'xs')}
+    </button>
+  `;
+  renderIcons(c);
+  $('#userCardBtn').addEventListener('click', () => { state.view = 'settings'; render(); });
 }
 
 // ============================================================
@@ -1867,19 +2807,19 @@ function openShortcuts() {
 // ============================================================
 // INIT
 // ============================================================
-function init() {
+async function init() {
+  // Se localStorage estiver vazio mas existir mirror em arquivo (Electron), restaura
+  await tryRestoreFromMirror();
+
   const meta = loadMeta();
   if (meta) {
-    state.profiles = meta.profiles || DEFAULT_PROFILES;
-    state.profile = meta.profile || state.profiles[0];
-    state.theme = meta.theme || 'dark';
-  } else {
-    state.profile = state.profiles[0];
+    state.user = { ...DEFAULT_USER, ...(meta.user || {}) };
+    state.appearance = { ...DEFAULT_APPEARANCE, ...(meta.appearance || {}) };
   }
-  state.data = loadProfileData(state.profile);
+  state.data = loadData();
 
-  applyTheme();
-  renderProfileButtons();
+  applyAppearance();
+  renderUserCard();
   saveMeta();
   applyRecurringRules();
 
@@ -1900,12 +2840,7 @@ function init() {
   $('#fab').addEventListener('click', () => openTransactionModal());
   $('#shortcutsBtn').addEventListener('click', openShortcuts);
 
-  $('#themeToggle').addEventListener('click', () => {
-    state.theme = state.theme === 'dark' ? 'light' : 'dark';
-    applyTheme();
-    saveMeta();
-    render();
-  });
+  $('#themeToggle').addEventListener('click', quickToggleTheme);
 
   $('#modalClose').addEventListener('click', closeModal);
   $('#modalOverlay').addEventListener('click', (e) => { if (e.target.id === 'modalOverlay') closeModal(); });
@@ -1927,7 +2862,7 @@ function init() {
 
     if (e.key === '?') { e.preventDefault(); openShortcuts(); return; }
     if (e.key.toLowerCase() === 'n' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); openTransactionModal(); return; }
-    if (e.key.toLowerCase() === 't') { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyTheme(); saveMeta(); render(); return; }
+    if (e.key.toLowerCase() === 't') { quickToggleTheme(); return; }
     if (e.key.toLowerCase() === 'g') { goChord = true; setTimeout(() => { goChord = false; }, 1200); return; }
     if (goChord) {
       const map = { d: 'dashboard', t: 'transactions', a: 'accounts', c: 'cards', r: 'reports', s: 'settings', b: 'budgets', m: 'goals', p: 'recurring' };

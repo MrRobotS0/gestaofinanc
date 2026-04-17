@@ -4,3 +4,9 @@ node_modules/
 .vscode/
 .idea/
 *.log
+
+# Build output (.exe é gerado com `npm run build`)
+dist/
+
+# Dados locais (ficam em %APPDATA%\Bank\, nunca aqui)
+*.local.json
