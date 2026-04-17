@@ -1,7 +1,4 @@
-// ============================================================
-// Bank — Gestão Financeira Pessoal
-// Persistência: localStorage (por perfil) — sem backend
-// ============================================================
+// bank — controle financeiro pessoal local
 
 const STORAGE_PREFIX = 'bank_v1_';         // legado — usado apenas para migração
 const STORAGE_META_OLD = 'bank_meta_v1';   // legado
@@ -88,7 +85,7 @@ const COLOR_OPTIONS = [
 
 const CARD_COLORS = ['dark','purple','pink','green','orange','blue'];
 
-// ---------- ESTADO ----------
+// estado
 let state = {
   user: { ...DEFAULT_USER },
   appearance: { ...DEFAULT_APPEARANCE },
@@ -98,7 +95,7 @@ let state = {
   dashMonth: null,
 };
 
-// ---------- UTILITÁRIOS ----------
+// utils
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -143,7 +140,7 @@ function renderIcons(root) {
 // Lucide icon placeholder HTML (use inside templates)
 const icon = (name, cls = '') => `<i data-lucide="${name}"${cls ? ` class="${cls}"` : ''}></i>`;
 
-// ---------- ELECTRON BRIDGE (opcional — app roda também em navegador) ----------
+// electron bridge
 const IS_ELECTRON = typeof window !== 'undefined' && !!window.electronAPI;
 
 function snapshotAll() {
@@ -175,7 +172,7 @@ function scheduleMirrorAndBackup() {
   }, 600);
 }
 
-// ---------- PERSISTÊNCIA ----------
+// persist
 function loadMeta() {
   try {
     const raw = localStorage.getItem(STORAGE_META);
@@ -273,7 +270,7 @@ async function tryRestoreFromMirror() {
   } catch { return false; }
 }
 
-// ---------- TOAST ----------
+// toast
 const TOAST_ICONS = { success: 'check-circle-2', error: 'x-circle', warning: 'alert-triangle', info: 'info' };
 function toast(msg, type = 'success') {
   const el = document.createElement('div');
@@ -288,7 +285,7 @@ function toast(msg, type = 'success') {
   }, 2800);
 }
 
-// ---------- MODAL ----------
+// modal
 function openModal(title, bodyHTML, onMount) {
   $('#modalTitle').textContent = title;
   $('#modalBody').innerHTML = bodyHTML;
@@ -315,7 +312,7 @@ function confirmDialog(message, onConfirm, opts = {}) {
   cancel.addEventListener('click', onCancel);
 }
 
-// ---------- CÁLCULOS ----------
+// cálculos
 function accountBalance(accountId) {
   const acc = state.data.accounts.find(a => a.id === accountId);
   if (!acc) return 0;
@@ -354,7 +351,7 @@ function cardInvoice(cardId, key) {
   return total;
 }
 
-// ---------- RENDER ROOT ----------
+// render
 const VIEW_TITLES = {
   dashboard: 'Painel', transactions: 'Transações', accounts: 'Contas', cards: 'Cartões',
   categories: 'Categorias', budgets: 'Orçamentos', goals: 'Metas', recurring: 'Recorrentes',
@@ -389,9 +386,7 @@ function destroyCharts() {
   state.charts = {};
 }
 
-// ============================================================
-// VIEW: DASHBOARD
-// ============================================================
+// view:DASHBOARD
 function renderDashboard(c) {
   const month = state.dashMonth || currentMonthKey();
   state.dashMonth = month;
@@ -543,9 +538,7 @@ function txItemHTML(tx) {
   `;
 }
 
-// ============================================================
-// VIEW: TRANSACTIONS
-// ============================================================
+// view:TRANSACTIONS
 function renderTransactions(c) {
   const filters = state.txFilters || { type: '', categoryId: '', accountId: '', from: '', to: '', q: '' };
   state.txFilters = filters;
@@ -663,7 +656,7 @@ function filterTransactions(filters) {
 
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
-// ---------- TOAST COM AÇÃO (Desfazer, etc.) ----------
+// toast com botão desfazer
 function toastWithAction(msg, actionLabel, onAction, opts = {}) {
   const type = opts.type || 'info';
   const duration = opts.duration || 6000;
@@ -690,7 +683,7 @@ function toastWithAction(msg, actionLabel, onAction, opts = {}) {
   });
 }
 
-// ---------- CALCULADORA INLINE ----------
+// calculadora no campo valor — "12,50 + 7,80"
 // Aceita expressões tipo "12,50 + 7,80", "100-15*2". Apenas dígitos e operadores básicos.
 function tryEvalAmount(raw) {
   if (raw === null || raw === undefined) return NaN;
@@ -705,7 +698,7 @@ function tryEvalAmount(raw) {
   } catch { return NaN; }
 }
 
-// ---------- AGRUPAMENTO POR DATA ----------
+// agrupamento por data (hoje, ontem, semana, mês)
 function formatDateGroup(iso) {
   if (!iso) return '';
   const today = todayISO();
@@ -738,7 +731,7 @@ function renderGroupedTransactionList(list) {
   `).join('');
 }
 
-// ---------- HISTÓRICO DE DESCRIÇÕES (auto-complete) ----------
+// autocomplete de descrições
 function buildDescriptionIndex() {
   const map = new Map();
   for (const t of state.data.transactions) {
@@ -755,7 +748,7 @@ function buildDescriptionIndex() {
   return [...map.entries()].sort((a, b) => b[1].count - a[1].count);
 }
 
-// ---------- DUPLICAR ----------
+// duplicar
 function duplicateTransaction(id) {
   const tx = state.data.transactions.find(t => t.id === id);
   if (!tx) return;
@@ -774,7 +767,7 @@ function duplicateTransaction(id) {
   render();
 }
 
-// ---------- COMPARATIVO vs MÊS ANTERIOR ----------
+// delta vs mês anterior
 function computeDelta(current, previous) {
   if (!previous || previous === 0) return null;
   return ((current - previous) / previous) * 100;
@@ -790,7 +783,7 @@ function deltaBadgeHtml(pct, semantic = 'normal') {
   return `<div class="stat-sub" style="color:${color};font-weight:600;">${sign}${pct.toFixed(0)}% vs mês anterior</div>`;
 }
 
-// ---------- PROJEÇÃO DE SALDO ----------
+// projeção de saldo fim-de-mês
 function projectEndOfMonthBalance() {
   const today = todayISO();
   const todayDay = parseInt(today.slice(8, 10));
@@ -807,9 +800,7 @@ function projectEndOfMonthBalance() {
   return { balance: totalBalance() + delta, delta, pending };
 }
 
-// ============================================================
-// TRANSACTION MODAL
-// ============================================================
+// modal de transação
 function openTransactionModal(editId = null, preset = {}) {
   if (state.data.accounts.length === 0) {
     toast('Crie uma conta antes de adicionar transações', 'warning');
@@ -1114,9 +1105,7 @@ function deleteTransaction(id) {
   }, { type: 'info', duration: 8000 });
 }
 
-// ============================================================
-// VIEW: ACCOUNTS
-// ============================================================
+// view:ACCOUNTS
 function renderAccounts(c) {
   const total = totalBalance();
   c.innerHTML = `
@@ -1236,9 +1225,7 @@ function deleteAccount(id) {
   });
 }
 
-// ============================================================
-// VIEW: CARDS
-// ============================================================
+// view:CARDS
 function renderCards(c) {
   const month = currentMonthKey();
   c.innerHTML = `
@@ -1390,9 +1377,7 @@ function deleteCard(id) {
   });
 }
 
-// ============================================================
-// VIEW: CATEGORIES
-// ============================================================
+// view:CATEGORIES
 function renderCategories(c) {
   const income = state.data.categories.filter(x => x.type === 'income');
   const expense = state.data.categories.filter(x => x.type === 'expense');
@@ -1529,9 +1514,7 @@ function deleteCategory(id) {
   });
 }
 
-// ============================================================
-// VIEW: BUDGETS
-// ============================================================
+// view:BUDGETS
 function renderBudgets(c) {
   const month = currentMonthKey();
   const { start, end } = monthRange(month);
@@ -1630,9 +1613,7 @@ function deleteBudget(id) {
   });
 }
 
-// ============================================================
-// VIEW: GOALS
-// ============================================================
+// view:GOALS
 function renderGoals(c) {
   c.innerHTML = `
     <div class="section-header">
@@ -1785,9 +1766,7 @@ function deleteGoal(id) {
   });
 }
 
-// ============================================================
-// VIEW: RECURRING
-// ============================================================
+// view:RECURRING
 function renderRecurring(c) {
   c.innerHTML = `
     <div class="section-header">
@@ -1951,9 +1930,7 @@ function applyRecurringRules() {
   return applied;
 }
 
-// ============================================================
-// VIEW: REPORTS
-// ============================================================
+// view:REPORTS
 function renderReports(c) {
   const months = [];
   for (let i = 5; i >= 0; i--) months.push(addMonths(currentMonthKey(), -i));
@@ -1982,9 +1959,7 @@ function renderReports(c) {
   drawReportsCharts(months);
 }
 
-// ============================================================
-// VIEW: SETTINGS
-// ============================================================
+// view:SETTINGS
 function renderSettings(c) {
   const ap = state.appearance;
   const u = state.user;
@@ -2254,7 +2229,7 @@ function renderSettings(c) {
   });
 }
 
-// ---------- VALIDAÇÃO DE SCHEMA (import) ----------
+// validação + sanitização de import
 const VALID_TX_TYPES = new Set(['income', 'expense', 'transfer']);
 const VALID_ACC_TYPES = new Set(['checking', 'savings', 'cash', 'investment', 'other']);
 const VALID_CAT_TYPES = new Set(['income', 'expense']);
@@ -2363,7 +2338,7 @@ function validateAndNormalizeData(raw) {
   return out;
 }
 
-// ---------- EXPORT ----------
+// export json/csv
 function buildExportPayload() {
   return {
     app: APP_NAME, version: '2.0.0',
@@ -2528,9 +2503,7 @@ async function importData(e) {
   });
 }
 
-// ============================================================
-// CHARTS
-// ============================================================
+// charts
 const cssVar = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
 const chartTextColor = () => cssVar('--text-muted');
 const chartGridColor = () => cssVar('--border');
@@ -2691,9 +2664,7 @@ function drawReportsCharts(months) {
   }
 }
 
-// ============================================================
-// APARÊNCIA (temas, densidade, fonte, raio, accent)
-// ============================================================
+// aparência (temas / densidade / fonte / raio / accent)
 function hexToRgba(hex, alpha) {
   const h = hex.replace('#', '');
   const v = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
@@ -2766,9 +2737,7 @@ function quickToggleTheme() {
   render();
 }
 
-// ============================================================
-// USER CARD (sidebar)
-// ============================================================
+// user card na sidebar
 function renderUserCard() {
   const c = $('#userCard');
   if (!c) return;
@@ -2786,9 +2755,7 @@ function renderUserCard() {
   $('#userCardBtn').addEventListener('click', () => { state.view = 'settings'; render(); });
 }
 
-// ============================================================
-// SHORTCUTS MODAL
-// ============================================================
+// modal de atalhos
 function openShortcuts() {
   const body = `
     <div class="shortcuts-list">
@@ -2804,9 +2771,7 @@ function openShortcuts() {
   openModal('Atalhos do teclado', body);
 }
 
-// ============================================================
-// INIT
-// ============================================================
+// init
 async function init() {
   // Se localStorage estiver vazio mas existir mirror em arquivo (Electron), restaura
   await tryRestoreFromMirror();

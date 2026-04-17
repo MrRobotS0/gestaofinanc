@@ -37,7 +37,7 @@ function todayISO() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// ---------- Window state (lembra tamanho/posição) ----------
+// lembra tamanho/posição da janela
 function loadWindowState() {
   try {
     const raw = fs.readFileSync(windowStatePath(), 'utf8');
@@ -203,9 +203,7 @@ app.on('window-all-closed', () => {
   if (!tray && process.platform !== 'darwin') app.quit();
 });
 
-// ============================================================
-// IPC
-// ============================================================
+// ipc
 
 ipcMain.handle('data:save-mirror', async (_e, json) => {
   try {
