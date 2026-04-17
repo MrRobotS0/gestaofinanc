@@ -39,7 +39,7 @@ const AVATAR_OPTIONS = [
 
 const DEFAULT_USER = { name: 'Você', avatar: '💼', title: 'Gestão Financeira' };
 const DEFAULT_APPEARANCE = {
-  theme: 'midnight',
+  theme: 'graphite',
   accent: null,
   fontScale: 1,
   density: 'normal',
